@@ -1,16 +1,10 @@
 import { useEffect, useState, useRef } from "react";
-
-// --- Public URLs từ GitHub ---
-const COIN_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/assets/logo.png";
-const BOMB_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/assets/fud.png";
-const BASKET_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/assets/nhanvat.png";
-const BG_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/assets/background.png";
-
-// --- Fake leaderboard JSON public URL ---
-const LEADERBOARD_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/assets/scoresIndex.json";
+import coinImg from "./assets/logo.png";
+import bombImg from "./assets/fud.png";
+import basketImg from "./assets/nhanvat.png";
+import bgImg from "./assets/background.png";
 
 function App() {
-  // --- Game config ---
   const containerWidth = 520;
   const containerHeight = 700;
   const playerWidth = 90;
@@ -18,13 +12,15 @@ function App() {
   const playerBottomOffset = 60;
   const itemSize = 70;
 
+  const timerRef = useRef(null);
+
   const [playerX, setPlayerX] = useState(50);
   const [items, setItems] = useState([]);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
+  const [link, setLink] = useState("");
   const [lives, setLives] = useState(5);
   const [timeLeft, setTimeLeft] = useState(180);
-  const [leaderboard, setLeaderboard] = useState([]);
 
   const timeLeftRef = useRef(timeLeft);
   timeLeftRef.current = timeLeft;
@@ -32,9 +28,27 @@ function App() {
   const playerXRef = useRef(playerX);
   playerXRef.current = playerX;
 
+  const sendScore = async (score) => {
+    try {
+      const res = await fetch("http://localhost:3000/upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ score }),
+      });
+
+      const data = await res.json();
+      console.log("Response:", data);
+
+      setLink(data.link);
+    } catch (err) {
+      console.error("Error:", err);
+    }
+  };
+
   const keysPressed = useRef({ left: false, right: false });
 
-  // --- Game input ---
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "ArrowLeft") keysPressed.current.left = true;
@@ -65,7 +79,6 @@ function App() {
     move();
   }, []);
 
-  // --- Spawn items ---
   useEffect(() => {
     if (gameOver) return;
     const spawnInterval = setInterval(() => {
@@ -79,33 +92,39 @@ function App() {
     return () => clearInterval(spawnInterval);
   }, [gameOver]);
 
-  // --- Time & movement ---
   useEffect(() => {
     if (gameOver) return;
-    const timer = setInterval(() => {
+
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
         if (t <= 1) {
           setGameOver(true);
-          clearInterval(timer);
+          clearInterval(timerRef.current);
           return 0;
         }
         return t - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
+
+    return () => clearInterval(timerRef.current);
   }, [gameOver]);
 
   useEffect(() => {
     if (gameOver) return;
+
     const moveInterval = setInterval(() => {
       setItems(prev => {
         const updatedItems = [];
+
         prev.forEach((i) => {
           const speedMultiplier = 1 + (180 - timeLeftRef.current) / 180;
           const newY = i.y + 3 * speedMultiplier;
 
           const itemY = (newY / 100) * containerHeight;
           const playerY = containerHeight - playerHeight - playerBottomOffset;
+
           const itemX = (i.x / 100) * containerWidth;
           const playerLeft = (playerXRef.current / 100) * containerWidth - playerWidth / 2;
           const playerRight = playerLeft + playerWidth;
@@ -118,7 +137,8 @@ function App() {
           ) {
             if (i.type === "good") setScore(s => s + 10);
             else setGameOver(true);
-          } else if (!i.hitBottom && newY >= 100) {
+          }
+          else if (!i.hitBottom && newY >= 100) {
             if (i.type === "good") {
               setLives(l => {
                 const newLives = l - 1;
@@ -129,35 +149,37 @@ function App() {
             i.hitBottom = true;
             updatedItems.push({ ...i, y: newY, hitBottom: true });
             return;
-          } else {
+          }
+          else {
             updatedItems.push({ ...i, y: newY });
           }
         });
+
         return updatedItems;
       });
     }, 50);
+
     return () => clearInterval(moveInterval);
   }, [gameOver]);
 
-  // --- Fetch leaderboard từ GitHub public ---
   useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const res = await fetch(LEADERBOARD_URL);
-        const urls = await res.json(); // ["url1", "url2", ...]
-        const scores = await Promise.all(
-          urls.map(async url => {
-            const r = await fetch(url);
-            return await r.json();
-          })
-        );
-        scores.sort((a, b) => b.score - a.score);
-        setLeaderboard(scores);
-      } catch (err) {
-        console.error("Leaderboard fetch error:", err);
+    if (gameOver) return;
+    const timer = setInterval(() => {
+      if (timeLeftRef.current <= 0) {
+        setGameOver(true);
+        clearInterval(timer);
+      } else {
+        setTimeLeft((t) => t - 1);
       }
-    };
-    fetchLeaderboard();
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) {
+      console.log("Game Over → sending score:", score);
+      sendScore(score);
+    }
   }, [gameOver]);
 
   const restart = () => {
@@ -167,39 +189,134 @@ function App() {
     setGameOver(false);
     setTimeLeft(180);
     setLives(5);
+
+    if (timerRef.current) clearInterval(timerRef.current);
   };
 
   return (
     <div style={{ minHeight: "100vh", background: "#2a1a14", color: "#ff4fa3", fontFamily: "Arial", textAlign: "center", padding: "20px" }}>
-      <h1>Don’t Fud Shelby (Test Mode)</h1>
-      <div style={{ position: "relative", width: `${containerWidth}px`, height: `${containerHeight}px`, margin: "40px auto", border: "2px solid #ff4fa3", borderRadius: "30px", overflow: "hidden", backgroundImage: `url(${BG_URL})`, backgroundSize: "cover" }}>
-        <div style={{ position: "absolute", bottom: `${playerBottomOffset}px`, left: `${playerX}%`, transform: "translateX(-50%)" }}>
-          <img src={BASKET_URL} style={{ width: `${playerWidth}px` }} />
-        </div>
-        {items.map((i, idx) => (
-          <div key={idx} style={{ position: "absolute", top: `${i.y}%`, left: `${i.x}%`, transform: "translateX(-50%)" }}>
-            <img src={i.type === "good" ? COIN_URL : BOMB_URL} style={{ width: `${itemSize}px` }} />
-          </div>
-        ))}
-        {gameOver && (
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "rgba(0,0,0,0.6)", padding: "20px", borderRadius: "20px", color: "#ff4fa3" }}>
-            <div>Your Score: {score}</div>
-            <button onClick={restart}>Restart</button>
-          </div>
-        )}
-      </div>
-
-      {/* Leaderboard hiển thị trực tiếp */}
-      {leaderboard.length > 0 && (
-        <div style={{ marginTop: "20px" }}>
-          <h2>Leaderboard (Test)</h2>
-          <ol>
-            {leaderboard.map((entry, idx) => (
-              <li key={idx}>{entry.player}: {entry.score} pts</li>
-            ))}
-          </ol>
+      <h1 style={{ fontSize: "36px", color: "#ff4fa3" }}>Don’t Fud Shelby</h1>
+      <p style={{ opacity: 0.7 }}>Web3 mini game inspired by Shelby</p>
+      
+      {link && (
+        <div style={{ marginTop: "10px" }}>
+          <p>Saved on backend:</p>
+          <a href={link} target="_blank">{link}</a>
         </div>
       )}
+
+      <div
+        style={{
+          position: "relative",
+          width: `${containerWidth}px`,
+          height: `${containerHeight}px`,
+          margin: "40px auto",
+          borderRadius: "30px",
+          overflow: "hidden",
+          background: "linear-gradient(#87CEEB, #e0f7ff)",
+          border: "2px solid #ff4fa3",
+          boxShadow: "0 0 40px rgba(255,79,163,0.4)",
+          backgroundImage: `url(${bgImg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+        }}
+      >
+
+        <div style={{
+          position: "absolute",
+          top: "10px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          gap: "8px",
+          fontSize: "24px",
+          zIndex: 10,
+        }}>
+          {Array.from({ length: lives }).map((_, index) => (
+            <span key={index}>❤️</span>
+          ))}
+        </div>
+
+        <h2 style={{
+          position: "absolute",
+          top: "10px",
+          right: "10px",
+          margin: 0,
+          color: "#ff4fa3",
+          fontSize: "20px",
+          textShadow: "0 0 5px black",
+          zIndex: 10,
+        }}>
+          Time: {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+        </h2>
+
+        <h2 style={{
+          position: "absolute",
+          top: "10px",
+          left: "10px",
+          margin: 0,
+          color: "#ff4fa3",
+          fontSize: "20px",
+          textShadow: "0 0 5px black",
+        }}>
+          Score: {score}
+        </h2>
+
+        {gameOver && (
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            color: "#ff4fa3",
+            fontSize: "32px",
+            textAlign: "center",
+            backgroundColor: "rgba(0,0,0,0.5)",
+            padding: "20px 40px",
+            borderRadius: "20px",
+            zIndex: 20,
+          }}>
+            <div style={{
+              fontSize: "28px",
+              fontWeight: "bold",
+              marginBottom: "10px",
+              textShadow: "0 0 5px black",
+            }}>
+              Your Score: {score}
+            </div>
+
+            <div>Game Over</div>
+
+            <button
+              onClick={restart}
+              style={{
+                marginTop: "10px",
+                padding: "10px 20px",
+                borderRadius: "999px",
+                border: "none",
+                background: "#ff4fa3",
+                color: "#2a1a14",
+                cursor: "pointer",
+              }}
+            >
+              Restart
+            </button>
+          </div>
+        )}
+
+        <div style={{ position: "absolute", bottom: `${playerBottomOffset}px`, left: `${playerX}%`, transform: "translateX(-50%)" }}>
+          <img src={basketImg} style={{ width: `${playerWidth}px` }} />
+        </div>
+
+        {items.map((i, index) => (
+          <div key={index} style={{ position: "absolute", top: `${i.y}%`, left: `${i.x}%`, transform: "translateX(-50%)" }}>
+            <img src={i.type === "good" ? coinImg : bombImg} style={{ width: `${itemSize}px`, filter: i.type === "good" ? "drop-shadow(0 0 8px #ff4fa3)" : "none" }} />
+          </div>
+        ))}
+      </div>
+
+      <p style={{ opacity: 0.4, fontSize: "12px" }}>Built with Shelby community 💖</p>
     </div>
   );
 }

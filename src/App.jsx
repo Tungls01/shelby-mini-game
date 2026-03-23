@@ -30,7 +30,7 @@ function App() {
 
   const sendScore = async (score) => {
     try {
-      const res = await fetch("https://shelby-mini-game.onrender.com/upload"), {
+      const res = await fetch("http://localhost:3000/upload", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
